@@ -1,4 +1,4 @@
-# Зборле — Discord бот
+# Зборле - Discord бот
 
 Macedonian Wordle for Discord. Each player gets their own private board, and the daily
 word is the same one [zborle.mk](https://zborle.mk) is showing.
@@ -33,7 +33,7 @@ cp .env.example .env
 ```
 
 Put the token in `BOT_TOKEN`. While developing, also set `DEV_GUILD_ID` to your test
-server's ID — guild-scoped commands register instantly, whereas global commands can take
+server's ID - guild-scoped commands register instantly, whereas global commands can take
 up to an hour to appear.
 
 Invite the bot with the `applications.commands` and `bot` scopes. It needs no privileged
@@ -73,7 +73,7 @@ word rolls over at Skopje midnight. Override with `ZBORLE_TIMEZONE` if needed.
 anyone can open zborle.mk to read today's word. This is inherent to matching the site.
 If you would rather the bot be uncheatable, change `word_of_day` in
 [words.py](zborle_bot/words.py) to draw from a shuffled ordering seeded with a private
-value — the rest of the code needs no changes.
+value, the rest of the code needs no changes.
 
 `data/wordlist.txt` order is load-bearing: the daily word is looked up by position.
 Do not sort or dedupe it. `data/valid-guesses.txt` is order-independent.
@@ -93,6 +93,6 @@ fonts/                Noto Sans Bold (SIL OFL), covers all 31 Macedonian letters
 tests/
 ```
 
-State lives in `db/zborle.db`, keyed by `(user_id, puzzle_index)` — one attempt per
+State lives in `db/zborle.db`, keyed by `(user_id, puzzle_index)` - one attempt per
 person per day, shared across every server the bot is in. Only the guesses are stored;
 colors, win state and stats are all derived.
