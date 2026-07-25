@@ -19,17 +19,17 @@ EMBED_COLOR_LOST = discord.Color.from_str(config.COLOR_ABSENT)
 
 HELP_TEXT = (
     'Погоди го скриениот петбуквен македонски збор за 6 обиди.\n\n'
-    '🟩 — буквата е точна и е на точно место\n'
-    '🟨 — буквата ја има во зборот, но на друго место\n'
-    '⬜ — буквата ја нема во зборот\n\n'
+    '🟩 - буквата е точна и е на точно место\n'
+    '🟨 - буквата ја има во зборот, но на друго место\n'
+    '⬜ - буквата ја нема во зборот\n\n'
     '**Команди**\n'
-    '`/зборле збор:<збор>` — направи обид\n'
-    '`/табла` — прикажи ја твојата табла\n'
-    '`/сподели` — сподели го резултатот во каналот\n'
-    '`/статистика` — твојата статистика\n'
-    '`/помош` — оваа порака\n\n'
+    '`/зборле збор:<збор>` - направи обид\n'
+    '`/табла` - прикажи ја твојата табла\n'
+    '`/сподели` - сподели го резултатот во каналот\n'
+    '`/статистика` - твојата статистика\n'
+    '`/помош` - оваа порака\n\n'
     'Зборовите се пишуваат на македонска кирилица. Секој играч има своја табла, '
-    'а зборот е ист за сите и се менува во полноќ по скопско време — истиот што е '
+    'а зборот е ист за сите и се менува во полноќ по скопско време - истиот што е '
     'на https://zborle.mk'
 )
 
@@ -177,7 +177,7 @@ async def stats_command(interaction: discord.Interaction) -> None:
         )
         return
 
-    embed = discord.Embed(title=f'Статистика — {interaction.user.display_name}', color=EMBED_COLOR)
+    embed = discord.Embed(title=f'Статистика - {interaction.user.display_name}', color=EMBED_COLOR)
     embed.add_field(name='Одиграни', value=str(stats.played))
     embed.add_field(name='Успешност', value=f'{stats.win_percent}%')
     embed.add_field(name='Серија', value=f'{stats.current_streak} (најдолга {stats.max_streak})')
@@ -195,7 +195,7 @@ async def stats_command(interaction: discord.Interaction) -> None:
 
 @client.tree.command(name='помош', description='Правила и команди')
 async def help_command(interaction: discord.Interaction) -> None:
-    embed = discord.Embed(title='Зборле — помош', description=HELP_TEXT, color=EMBED_COLOR)
+    embed = discord.Embed(title='Зборле - помош', description=HELP_TEXT, color=EMBED_COLOR)
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 

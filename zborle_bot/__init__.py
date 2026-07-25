@@ -1,3 +1,3 @@
-"""Зборле — Macedonian Wordle for Discord."""
+"""Зборле - Macedonian Wordle for Discord."""
 
 __version__ = '1.0.0'

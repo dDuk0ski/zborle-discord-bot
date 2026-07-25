@@ -96,3 +96,15 @@ tests/
 State lives in `db/zborle.db`, keyed by `(user_id, puzzle_index)` - one attempt per
 person per day, shared across every server the bot is in. Only the guesses are stored;
 colors, win state and stats are all derived.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
+
+The word lists and the daily-word schedule come from
+[zborle/wordle](https://github.com/zborle/wordle), which is MIT licensed, and that
+notice is carried in `LICENSE` as MIT requires. The bundled Noto Sans Bold is under the
+SIL Open Font License 1.1, included at [fonts/LICENSE-NotoSans.txt](fonts/LICENSE-NotoSans.txt).
+
+[JaredIsaacs/worlde-discord](https://github.com/JaredIsaacs/worlde-discord) inspired the
+overall structure but publishes no license, so none of its code is reproduced here.
