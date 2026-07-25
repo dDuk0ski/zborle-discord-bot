@@ -1,0 +1,16 @@
+.venv/
+.git/
+.github/
+db/
+logs/
+tests/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.env
+.DS_Store
+README.md
+fly.toml
+Dockerfile
+.dockerignore

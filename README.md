@@ -97,6 +97,68 @@ State lives in `db/zborle.db`, keyed by `(user_id, puzzle_index)` - one attempt 
 person per day, shared across every server the bot is in. Only the guesses are stored;
 colors, win state and stats are all derived.
 
+## Deploying to Fly.io
+
+```bash
+brew install flyctl && fly auth login
+```
+
+Then, from the project directory:
+
+```bash
+fly launch --no-deploy
+```
+
+Answer no when it offers to overwrite `fly.toml`. If the app name is taken it will pick
+another; that is fine. Create the volume for the SQLite file, in the same region as
+`primary_region`:
+
+```bash
+fly volumes create zborle_data --size 1 --region fra
+```
+
+Set the token as a secret. It is encrypted at rest and never enters the image or git:
+
+```bash
+fly secrets set BOT_TOKEN=paste_your_token_here
+```
+
+Deploy, then pin it to exactly one machine:
+
+```bash
+fly deploy --remote-only && fly scale count 1
+```
+
+```bash
+fly logs
+```
+
+You should see `Најавен како Zborle Bot#8244` and `Денешен збор: #NNN`.
+
+### Two things that will bite you
+
+**Run exactly one machine.** Fly likes to start two. Two machines means two gateway
+connections, and the bot answers every command twice. `fly scale count 1` is not
+optional. Check with `fly status`.
+
+**Commands are registered globally in production.** `DEV_GUILD_ID` is deliberately not
+set in `fly.toml`, so the deployed bot registers global commands that work in every
+server it joins. Global commands can take up to an hour to appear. If you previously ran
+the bot locally with `DEV_GUILD_ID` set, that server still has guild-scoped copies
+registered and you will see each command listed twice. Clear them once:
+
+```bash
+curl -X PUT -H "Authorization: Bot $BOT_TOKEN" -H "Content-Type: application/json" -d '[]' "https://discord.com/api/v10/applications/YOUR_APP_ID/guilds/YOUR_GUILD_ID/commands"
+```
+
+### Updating
+
+```bash
+fly deploy --remote-only
+```
+
+The volume persists across deploys, so player stats and streaks survive.
+
 ## License
 
 MIT, see [LICENSE](LICENSE).

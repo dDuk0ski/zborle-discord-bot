@@ -6,6 +6,7 @@ import os
 
 import discord
 from discord import app_commands
+from discord.utils import MISSING
 
 from . import config, words
 from .board import Game
@@ -214,6 +215,16 @@ def run() -> None:
     if not token:
         raise SystemExit('BOT_TOKEN не е поставен. Копирај .env.example во .env и внеси го токенот.')
 
-    os.makedirs('logs', exist_ok=True)
-    handler = logging.FileHandler(filename='logs/zborle.log', encoding='utf-8', mode='a')
-    client.run(token, log_handler=handler, log_level=logging.INFO)
+    # Default to stderr so container platforms capture the output. Set ZBORLE_LOG_FILE
+    # to also write to disk when running locally.
+    handler = MISSING
+    log_file = os.getenv('ZBORLE_LOG_FILE')
+    if log_file:
+        directory = os.path.dirname(log_file)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        handler = logging.FileHandler(filename=log_file, encoding='utf-8', mode='a')
+
+    # root_logger=True is required, otherwise the handler is attached only to discord.py's
+    # own logger and every log call in this module is silently discarded.
+    client.run(token, log_handler=handler, log_level=logging.INFO, root_logger=True)

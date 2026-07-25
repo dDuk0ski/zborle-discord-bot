@@ -1,0 +1,20 @@
+# Fly.io config. `fly launch --no-deploy` will rename `app` if this one is taken.
+app = "zborle-discord-bot"
+primary_region = "fra"
+
+[build]
+
+[env]
+  # SQLite lives on the mounted volume so stats survive deploys and restarts.
+  ZBORLE_DB_PATH = "/data/zborle.db"
+  ZBORLE_TIMEZONE = "Europe/Skopje"
+
+# No [http_service]: this is a gateway worker, not a web app. Adding one would let Fly
+# autostop the machine on idle HTTP, which would kill the bot's Discord connection.
+[mounts]
+  source = "zborle_data"
+  destination = "/data"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

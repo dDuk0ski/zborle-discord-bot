@@ -1,3 +1,7 @@
 discord.py>=2.4,<3
 pillow>=10.0
 python-dotenv>=1.0
+# Slim container images ship no system tzdata, which makes ZoneInfo('Europe/Skopje')
+# raise at import. zoneinfo falls back to this package when the system database is
+# missing, so the daily-word schedule keeps working in Docker.
+tzdata>=2024.1
