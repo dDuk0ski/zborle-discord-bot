@@ -176,3 +176,69 @@ def test_leaderboard_ranks_by_wins_then_average_guesses(tmp_path, monkeypatch):
     rows = db.leaderboard(5)
     assert [row['displayName'] for row in rows] == ['Fast', 'Slow', 'Loser']
     db.close()
+
+
+def test_group_streak_counts_consecutive_days_with_any_player(tmp_path, monkeypatch):
+    monkeypatch.setenv('ZBORLE_DB_PATH', str(tmp_path / 'streak2.db'))
+    for module in [m for m in list(sys.modules) if m.startswith('zborle_bot')]:
+        del sys.modules[module]
+
+    from zborle_bot.db import IN_PROGRESS, LOST, WON, ZborleDB
+
+    db = ZborleDB(tmp_path / 'streak2.db')
+    db.remember_player(1, 10, 'A', None)
+    db.remember_player(1, 11, 'B', None)
+
+    # Days 98-100 covered, alternating who played. A loss still keeps the group streak.
+    db.save(10, 100, ['АА'], WON)
+    db.save(11, 99, ['ББ'], LOST)
+    db.save(10, 98, ['ВВ'], WON)
+    # Gap at 97, so the streak stops at three.
+    db.save(11, 96, ['ГГ'], WON)
+    assert db.group_streak(1, 100) == 3
+
+    # An unfinished game does not extend it.
+    db.save(10, 101, ['ДД'], IN_PROGRESS)
+    assert db.group_streak(1, 101) == 0
+    db.close()
+
+
+def test_guild_results_rank_winners_before_losers(tmp_path, monkeypatch):
+    monkeypatch.setenv('ZBORLE_DB_PATH', str(tmp_path / 'results.db'))
+    for module in [m for m in list(sys.modules) if m.startswith('zborle_bot')]:
+        del sys.modules[module]
+
+    from zborle_bot.db import LOST, WON, ZborleDB
+
+    db = ZborleDB(tmp_path / 'results.db')
+    for user_id, name in [(1, 'Three'), (2, 'Two'), (3, 'Lost')]:
+        db.remember_player(50, user_id, name, None)
+    db.save(1, 200, ['А', 'Б', 'В'], WON)
+    db.save(2, 200, ['А', 'Б'], WON)
+    db.save(3, 200, ['А', 'Б', 'В', 'Г', 'Д', 'Ѓ'], LOST)
+
+    results = db.guild_results(50, 200)
+    assert [r['displayName'] for r in results] == ['Two', 'Three', 'Lost']
+    assert [r['score'] for r in results] == [2, 3, None]
+    db.close()
+
+
+def test_summary_channel_round_trip(tmp_path, monkeypatch):
+    monkeypatch.setenv('ZBORLE_DB_PATH', str(tmp_path / 'cfg.db'))
+    for module in [m for m in list(sys.modules) if m.startswith('zborle_bot')]:
+        del sys.modules[module]
+
+    from zborle_bot.db import ZborleDB
+
+    db = ZborleDB(tmp_path / 'cfg.db')
+    assert db.summary_channel(7) is None
+    db.set_summary_channel(7, 12345)
+    assert db.summary_channel(7) == 12345
+    assert db.guilds_with_summary() == [(7, 12345, None)]
+
+    db.mark_summary_posted(7, 300)
+    assert db.guilds_with_summary() == [(7, 12345, 300)]
+
+    db.set_summary_channel(7, None)
+    assert db.guilds_with_summary() == []
+    db.close()

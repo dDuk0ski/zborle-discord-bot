@@ -43,6 +43,13 @@ CREATE TABLE IF NOT EXISTS guild_players (
     PRIMARY KEY (guild_id, user_id)
 );
 CREATE INDEX IF NOT EXISTS guild_players_by_guild ON guild_players (guild_id);
+
+-- Per-server settings. Only the daily summary channel for now.
+CREATE TABLE IF NOT EXISTS guild_config (
+    guild_id           INTEGER NOT NULL PRIMARY KEY,
+    summary_channel_id INTEGER,
+    last_summary_index INTEGER
+);
 '''
 
 
@@ -204,6 +211,86 @@ class ZborleDB:
             )
         )
         return rows
+
+
+    # ---- Daily summary support ----
+
+    def set_summary_channel(self, guild_id: int, channel_id: int | None) -> None:
+        self.conn.execute(
+            '''INSERT INTO guild_config (guild_id, summary_channel_id) VALUES (?, ?)
+               ON CONFLICT (guild_id) DO UPDATE SET summary_channel_id = excluded.summary_channel_id''',
+            (guild_id, channel_id),
+        )
+        self.conn.commit()
+
+    def summary_channel(self, guild_id: int) -> int | None:
+        row = self.conn.execute(
+            'SELECT summary_channel_id FROM guild_config WHERE guild_id = ?', (guild_id,)
+        ).fetchone()
+        return row['summary_channel_id'] if row else None
+
+    def guilds_with_summary(self) -> list[tuple[int, int, int | None]]:
+        rows = self.conn.execute(
+            '''SELECT guild_id, summary_channel_id, last_summary_index FROM guild_config
+               WHERE summary_channel_id IS NOT NULL'''
+        ).fetchall()
+        return [(r['guild_id'], r['summary_channel_id'], r['last_summary_index']) for r in rows]
+
+    def mark_summary_posted(self, guild_id: int, puzzle_index: int) -> None:
+        """Record the last summary posted, so a restart cannot double-post."""
+        self.conn.execute(
+            'UPDATE guild_config SET last_summary_index = ? WHERE guild_id = ?',
+            (puzzle_index, guild_id),
+        )
+        self.conn.commit()
+
+    def guild_results(self, guild_id: int, puzzle_index: int) -> list[dict]:
+        """Everyone on this server who finished a given day's puzzle, best score first."""
+        rows = self.conn.execute(
+            '''SELECT p.user_id, p.display_name, p.avatar_url, g.guesses, g.status
+               FROM guild_players p
+               JOIN games g ON g.user_id = p.user_id
+               WHERE p.guild_id = ? AND g.puzzle_index = ? AND g.status != ?''',
+            (guild_id, puzzle_index, IN_PROGRESS),
+        ).fetchall()
+
+        results = [
+            {
+                'userId': str(row['user_id']),
+                'displayName': row['display_name'] or 'Играч',
+                'avatarUrl': row['avatar_url'],
+                'guesses': row['guesses'].split(',') if row['guesses'] else [],
+                'won': row['status'] == WON,
+                'score': len(row['guesses'].split(',')) if row['status'] == WON else None,
+            }
+            for row in rows
+        ]
+        # Winners first, fewest guesses first; players who lost go last.
+        results.sort(key=lambda r: (r['score'] is None, r['score'] or 0))
+        return results
+
+    def group_streak(self, guild_id: int, up_to_index: int) -> int:
+        """Consecutive days ending at up_to_index where somebody here finished the puzzle.
+
+        A shared streak that survives as long as one person keeps playing, which is what
+        makes it a group streak rather than everyone's individual streak intersected.
+        """
+        rows = self.conn.execute(
+            '''SELECT DISTINCT g.puzzle_index FROM games g
+               JOIN guild_players p ON p.user_id = g.user_id
+               WHERE p.guild_id = ? AND g.puzzle_index <= ? AND g.status != ?
+               ORDER BY g.puzzle_index DESC''',
+            (guild_id, up_to_index, IN_PROGRESS),
+        ).fetchall()
+
+        streak = 0
+        expected = up_to_index
+        for row in rows:
+            if row['puzzle_index'] != expected:
+                break
+            streak += 1
+            expected -= 1
+        return streak
 
 
 _shared: ZborleDB | None = None

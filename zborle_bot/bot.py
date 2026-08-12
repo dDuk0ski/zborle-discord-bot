@@ -6,10 +6,12 @@ import os
 
 import discord
 from discord import app_commands
+from discord.ext import tasks
 from discord.utils import MISSING
 
 from . import config, words
 from .board import Game
+from .daily import post_due_summaries
 from .db import IN_PROGRESS, LOST, WON, shared_db
 from .words import GuessError
 
@@ -136,10 +138,31 @@ def countdown_note() -> str:
     return f'Следниот збор за {words.format_countdown(words.time_until_next_word())}.'
 
 
+@tasks.loop(minutes=10)
+async def daily_summary_task() -> None:
+    """Post yesterday's summary once the day has rolled over.
+
+    Polls rather than sleeping until midnight: a restart at the wrong moment would
+    otherwise skip a day entirely. `last_summary_index` in the database is what actually
+    prevents double-posting, so running this often is harmless.
+    """
+    try:
+        await post_due_summaries(client, client.db)
+    except Exception:
+        log.exception('Дневниот преглед не успеа')
+
+
+@daily_summary_task.before_loop
+async def _before_daily_summary() -> None:
+    await client.wait_until_ready()
+
+
 @client.event
 async def on_ready() -> None:
     log.info('Најавен како %s (id %s)', client.user, client.user.id)
     log.info('Денешен збор: #%s', words.puzzle_index())
+    if not daily_summary_task.is_running():
+        daily_summary_task.start()
 
 
 @client.tree.command(name='зборле', description='Направи обид за денешниот збор')
@@ -245,6 +268,26 @@ async def stats_command(interaction: discord.Interaction) -> None:
     embed.add_field(name='Распределба на обиди', value='```\n' + '\n'.join(lines) + '\n```', inline=False)
 
     await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@client.tree.command(name='преглед', description='Постави го каналот за дневниот преглед')
+@app_commands.rename(channel='канал')
+@app_commands.describe(channel='Каналот во кој да се објавува дневниот преглед. Празно за исклучување.')
+@app_commands.default_permissions(manage_guild=True)
+async def summary_channel_command(
+    interaction: discord.Interaction, channel: discord.TextChannel | None = None
+) -> None:
+    if not interaction.guild_id:
+        await interaction.response.send_message('Оваа команда работи само на сервер.', ephemeral=True)
+        return
+
+    client.db.set_summary_channel(interaction.guild_id, channel.id if channel else None)
+    message = (
+        f'Дневниот преглед ќе се објавува во {channel.mention}.'
+        if channel
+        else 'Дневниот преглед е исклучен.'
+    )
+    await interaction.response.send_message(message, ephemeral=True)
 
 
 @client.tree.command(name='помош', description='Правила и команди')
