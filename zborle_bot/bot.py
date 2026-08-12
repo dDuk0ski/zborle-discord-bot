@@ -273,7 +273,10 @@ async def stats_command(interaction: discord.Interaction) -> None:
 @client.tree.command(name='преглед', description='Постави го каналот за дневниот преглед')
 @app_commands.rename(channel='канал')
 @app_commands.describe(channel='Каналот во кој да се објавува дневниот преглед. Празно за исклучување.')
-@app_commands.default_permissions(manage_guild=True)
+# Deliberately ungated. default_permissions(manage_guild=True) hides the command outright
+# from members without Manage Server, so it does not even autocomplete for them, which
+# made it unusable in servers where players are not admins. The worst case here is one
+# misdirected message a day.
 async def summary_channel_command(
     interaction: discord.Interaction, channel: discord.TextChannel | None = None
 ) -> None:
