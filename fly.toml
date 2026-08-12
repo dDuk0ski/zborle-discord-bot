@@ -19,8 +19,17 @@ primary_region = 'fra'
   source = 'zborle_data'
   destination = '/data'
 
-# Deliberately no [http_service]. This is a Discord gateway worker, not a web app.
-# Machines must stay up continuously to hold the websocket connection.
+# Serves the Discord Activity. The machine also holds the bot's gateway websocket, so
+# every autoscaling knob here is deliberately disabled: auto_stop_machines would kill
+# the bot the moment HTTP went quiet, and auto_start_machines is meaningless when the
+# machine must never stop in the first place.
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = 'off'
+  auto_start_machines = false
+  min_machines_running = 1
+  processes = ['app']
 
 [[vm]]
   size = 'shared-cpu-1x'

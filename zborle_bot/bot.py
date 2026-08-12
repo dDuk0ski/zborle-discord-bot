@@ -10,7 +10,7 @@ from discord.utils import MISSING
 
 from . import config, words
 from .board import Game
-from .db import IN_PROGRESS, LOST, WON, ZborleDB
+from .db import IN_PROGRESS, LOST, WON, shared_db
 from .words import GuessError
 
 log = logging.getLogger(__name__)
@@ -39,7 +39,7 @@ class ZborleClient(discord.Client):
     def __init__(self) -> None:
         super().__init__(intents=discord.Intents.default())
         self.tree = app_commands.CommandTree(self)
-        self.db = ZborleDB()
+        self.db = shared_db()
 
     async def setup_hook(self) -> None:
         dev_guild = os.getenv('DEV_GUILD_ID')

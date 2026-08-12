@@ -83,11 +83,11 @@ class Game:
 
     def add_guess(self, raw: str) -> list[Status]:
         if self.is_over:
-            raise GuessError('Играта за денес е завршена.')
+            raise GuessError('Играта за денес е завршена.', 'game_over')
 
         guess = clean_guess(raw)
         if guess in self.guesses:
-            raise GuessError(f'Веќе го проба „{guess}“.')
+            raise GuessError(f'Веќе го проба „{guess}“.', 'duplicate')
 
         self.guesses.append(guess)
         return score_guess(guess, self.solution)

@@ -123,3 +123,18 @@ class ZborleDB:
 
     def distribution_rows(self, stats: Stats) -> list[tuple[int, int]]:
         return [(score, stats.distribution.get(score, 0)) for score in range(1, MAX_GUESSES + 1)]
+
+
+_shared: ZborleDB | None = None
+
+
+def shared_db() -> ZborleDB:
+    """One connection for the whole process.
+
+    The bot and the Activity's web server run in the same asyncio loop and must see the
+    same rows, so they share this instance rather than opening the database twice.
+    """
+    global _shared
+    if _shared is None:
+        _shared = ZborleDB()
+    return _shared

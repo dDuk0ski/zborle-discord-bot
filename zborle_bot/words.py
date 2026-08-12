@@ -34,7 +34,16 @@ VALID_GUESSES = frozenset(_load(GUESSES_PATH))
 
 
 class GuessError(ValueError):
-    """A guess the player can fix, carrying a message already written in Macedonian."""
+    """A guess the player can fix.
+
+    Carries a Macedonian message for humans and a stable `code` for callers. The web API
+    branches on the code; matching on the message text would break the moment any of the
+    wording changes.
+    """
+
+    def __init__(self, message: str, code: str = 'not_a_word'):
+        super().__init__(message)
+        self.code = code
 
 
 def today(now: datetime | None = None) -> date:
@@ -71,15 +80,19 @@ def clean_guess(raw: str) -> str:
     guess = raw.strip().translate(str.maketrans('ѐѝЀЍ', 'еиЕИ')).upper()
 
     if len(guess) != WORD_LENGTH:
-        raise GuessError(f'Зборот мора да има точно {WORD_LENGTH} букви, а „{raw.strip()}“ има {len(guess)}.')
+        raise GuessError(
+            f'Зборот мора да има точно {WORD_LENGTH} букви, а „{raw.strip()}“ има {len(guess)}.',
+            'wrong_length',
+        )
 
     unknown = [char for char in guess if char not in MK_ALPHABET]
     if unknown:
         raise GuessError(
-            f'Зборот мора да биде напишан на македонска кирилица. Непознати знаци: {" ".join(unknown)}'
+            f'Зборот мора да биде напишан на македонска кирилица. Непознати знаци: {" ".join(unknown)}',
+            'not_cyrillic',
         )
 
     if guess.lower() not in VALID_GUESSES:
-        raise GuessError(f'„{guess}“ не е во речникот.')
+        raise GuessError(f'„{guess}“ не е во речникот.', 'not_a_word')
 
     return guess

@@ -5,3 +5,7 @@ python-dotenv>=1.0
 # raise at import. zoneinfo falls back to this package when the system database is
 # missing, so the daily-word schedule keeps working in Docker.
 tzdata>=2024.1
+# Activity backend.
+fastapi>=0.115
+uvicorn[standard]>=0.30
+httpx>=0.27
