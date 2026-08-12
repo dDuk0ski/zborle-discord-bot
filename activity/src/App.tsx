@@ -1,5 +1,5 @@
 import { ChartBarIcon, InformationCircleIcon, QuestionMarkCircleIcon } from '@heroicons/react/24/outline'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Alert } from './components/alerts/Alert'
 import { Grid } from './components/grid/Grid'
 import { Keyboard } from './components/keyboard/Keyboard'
@@ -7,67 +7,103 @@ import { AboutModal } from './components/modals/AboutModal'
 import { InfoModal } from './components/modals/InfoModal'
 import { WinModal } from './components/modals/WinModal'
 import { ShortcutsModal } from './components/modals/ShortcutsModal'
-import { getTimeUntilNextWord, getWordOfDay, getWordOfDayIndex, isWinningWord, isWordInWordList } from './lib/words'
-import { loadGameStateFromLocalStorage, saveGameStateToLocalStorage } from './lib/localStorage'
+import { getTimeUntilNextWord, hasRolledOver, setSchedule } from './lib/words'
 import { convert, LETTERS_EN } from './lib/keyboard'
-import { addStatsForCompletedGame, loadStats } from './lib/stats'
+import { toGameStats } from './lib/stats'
+import { emptyStats } from './lib/localStorage'
+import { recordGuessStatuses, replaceGuessStatuses } from './lib/statuses'
+import { fetchState, fetchStats, submitGuess } from './lib/api'
+import { startSession, type Session } from './lib/discord'
 import { StatsModal } from './components/modals/StatsModals'
 import { ThemeToggle } from './components/ui/ThemeToggle'
 import { SoundToggle } from './components/ui/SoundToggle'
 import { useSound } from './contexts/SoundContext'
 
+const ALERT_MS = 2000
+
 function App() {
     const { playSound } = useSound()
+    const [session, setSession] = useState<Session | null>(null)
+    const [bootError, setBootError] = useState<string | null>(null)
+
     const [currentGuess, setCurrentGuess] = useState('')
+    const [guesses, setGuesses] = useState<string[]>([])
+    const [solution, setSolution] = useState<string | null>(null)
     const [isGameWon, setIsGameWon] = useState(false)
+    const [isSubmitting, setIsSubmitting] = useState(false)
+
     const [isWinModalOpen, setIsWinModalOpen] = useState(false)
     const [isWinAnimationStarted, setIsWinAnimationStarted] = useState(false)
     const [isInfoModalOpen, setIsInfoModalOpen] = useState(false)
     const [isAboutModalOpen, setIsAboutModalOpen] = useState(false)
     const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState(false)
-    const [isNotEnoughLetters, setIsNotEnoughLetters] = useState(false)
     const [isStatsModalOpen, setIsStatsModalOpen] = useState(false)
-    const [isWordNotFoundAlertOpen, setIsWordNotFoundAlertOpen] = useState(false)
+    const [isNotEnoughLetters, setIsNotEnoughLetters] = useState(false)
+    const [rejection, setRejection] = useState<string | null>(null)
     const [isGameLost, setIsGameLost] = useState(false)
     const [shareComplete, setShareComplete] = useState(false)
+
     const [timeUntilNextWord, setTimeUntilNextWord] = useState(getTimeUntilNextWord())
-    const [guesses, setGuesses] = useState<string[]>(() => {
-        const loaded = loadGameStateFromLocalStorage()
-        if (loaded == null) {
+    const [stats, setStats] = useState(emptyStats)
+
+    const refreshStats = useCallback(async () => {
+        try {
+            setStats(toGameStats(await fetchStats()))
+        } catch {
+            // Stats are decoration; a failure here must not break the board.
+        }
+    }, [])
+
+    /** Pull the authoritative board from the server and mirror it into local state. */
+    const loadState = useCallback(async () => {
+        const state = await fetchState()
+        setSchedule(state.puzzleIndex, state.secondsUntilNext)
+        replaceGuessStatuses(state.guesses, state.statuses)
+        setGuesses(state.guesses)
+        setSolution(state.solution)
+        setIsGameWon(state.isWon)
+        setTimeUntilNextWord(getTimeUntilNextWord())
+        if (state.guesses.length === 0) {
             setIsInfoModalOpen(true)
         }
-        if (loaded?.solutionIndex !== getWordOfDayIndex()) {
-            return []
+        if (state.isWon) {
+            setIsWinAnimationStarted(true)
+            setIsWinModalOpen(true)
         }
-        if (loaded.guesses.includes(getWordOfDay())) {
-            setIsGameWon(true)
-        }
-        return loaded.guesses
-    })
+    }, [])
 
-    const [stats, setStats] = useState(() => loadStats())
-
+    // Boot: authenticate with Discord, then load the board. Both must succeed before the
+    // grid means anything, so failures surface instead of rendering an empty board.
     useEffect(() => {
-        const state = loadGameStateFromLocalStorage()
-        if (!state || state?.solutionIndex === timeUntilNextWord.solutionIndex) {
-            if (isWinModalOpen) {
-                const timer = setTimeout(() => {
-                    setTimeUntilNextWord(getTimeUntilNextWord())
-                }, 1000)
-                return () => clearTimeout(timer)
+        let cancelled = false
+        ;(async () => {
+            try {
+                const active = await startSession()
+                if (cancelled) return
+                setSession(active)
+                await loadState()
+                if (!cancelled) await refreshStats()
+            } catch (error) {
+                if (!cancelled) {
+                    setBootError(error instanceof Error ? error.message : 'Неуспешно поврзување.')
+                }
             }
-        } else {
-            setIsGameWon(false)
-            setGuesses([])
+        })()
+        return () => {
+            cancelled = true
         }
-    }, [timeUntilNextWord, isWinModalOpen])
+    }, [loadState, refreshStats])
 
+    // Countdown, and a refetch when the word rolls over at Skopje midnight.
     useEffect(() => {
-        saveGameStateToLocalStorage({
-            guesses,
-            solutionIndex: getWordOfDayIndex(),
-        })
-    }, [guesses])
+        const timer = setInterval(() => {
+            setTimeUntilNextWord(getTimeUntilNextWord())
+            if (hasRolledOver()) {
+                void loadState()
+            }
+        }, 1000)
+        return () => clearInterval(timer)
+    }, [loadState])
 
     useEffect(() => {
         const timeout = setTimeout(() => setIsWinModalOpen(isGameWon), 2500)
@@ -79,8 +115,13 @@ function App() {
         return () => clearTimeout(timeout)
     }, [isGameWon])
 
+    const flash = (set: (value: boolean) => void) => {
+        set(true)
+        setTimeout(() => set(false), ALERT_MS)
+    }
+
     const onChar = (value: string) => {
-        if (isGameWon) {
+        if (isGameWon || isSubmitting || solution) {
             return
         }
         let converted = value
@@ -94,51 +135,59 @@ function App() {
     }
 
     const onDelete = () => {
+        if (isSubmitting) return
         setCurrentGuess(currentGuess.slice(0, -1))
         playSound('delete')
     }
 
-    const onEnter = () => {
-        if (isGameWon) {
+    const onEnter = async () => {
+        if (isGameWon || isSubmitting || solution) {
             return
         }
+
+        // Length is checked locally purely for instant feedback; the server checks it too.
         if (currentGuess.length !== 5) {
-            setIsNotEnoughLetters(true)
             playSound('invalid')
-            return setTimeout(() => {
-                setIsNotEnoughLetters(false)
-            }, 2000)
+            flash(setIsNotEnoughLetters)
+            return
         }
 
-        if (!isWordInWordList(currentGuess)) {
-            setIsWordNotFoundAlertOpen(true)
-            playSound('invalid')
-            return setTimeout(() => {
-                setIsWordNotFoundAlertOpen(false)
-            }, 2000)
-        }
+        setIsSubmitting(true)
+        try {
+            const result = await submitGuess(currentGuess)
 
-        const winningWord = isWinningWord(currentGuess)
+            if (!result.ok) {
+                playSound('invalid')
+                setRejection(result.message)
+                setTimeout(() => setRejection(null), ALERT_MS)
+                return
+            }
 
-        if (currentGuess.length === 5 && guesses.length < 6 && !isGameWon) {
-            setGuesses([...guesses, currentGuess])
+            recordGuessStatuses(currentGuess, result.statuses)
+            setGuesses((previous) => [...previous, currentGuess])
             setCurrentGuess('')
             playSound('enter')
 
-            if (winningWord) {
-                setStats(addStatsForCompletedGame(stats, guesses.length))
+            if (result.isWon) {
+                setSolution(result.solution)
                 setTimeout(() => playSound('win'), 500)
-                return setIsGameWon(true)
+                setIsGameWon(true)
+                void refreshStats()
+                return
             }
 
-            if (guesses.length === 5) {
-                setStats(addStatsForCompletedGame(stats, guesses.length + 1))
-                setIsGameLost(true)
+            if (result.isLost) {
+                setSolution(result.solution)
                 setTimeout(() => playSound('lose'), 500)
-                return setTimeout(() => {
-                    setIsGameLost(false)
-                }, 5000)
+                flash(setIsGameLost)
+                void refreshStats()
             }
+        } catch {
+            playSound('invalid')
+            setRejection('Серверот не одговори. Обиди се повторно.')
+            setTimeout(() => setRejection(null), ALERT_MS)
+        } finally {
+            setIsSubmitting(false)
         }
     }
 
@@ -154,16 +203,35 @@ function App() {
         return () => window.removeEventListener('keydown', handleKeyDown)
     }, [])
 
+    if (bootError) {
+        return (
+            <div className="min-h-screen bg-white dark:bg-slate-900 flex items-center justify-center p-6">
+                <div className="max-w-sm text-center">
+                    <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100 mb-2">Зборле</h1>
+                    <p className="text-slate-600 dark:text-slate-400">{bootError}</p>
+                </div>
+            </div>
+        )
+    }
+
+    if (!session) {
+        return (
+            <div className="min-h-screen bg-white dark:bg-slate-900 flex items-center justify-center">
+                <p className="text-slate-500 dark:text-slate-400 tracking-wider uppercase">Се вчитува…</p>
+            </div>
+        )
+    }
+
     return (
         <div className="min-h-screen bg-white dark:bg-slate-900 transition-colors duration-300">
             <div className="py-8 max-w-7xl mx-auto sm:px-6 lg:px-8">
                 <Alert message="Немате внесено доволно букви" isOpen={isNotEnoughLetters} variant="error" />
+                <Alert message={rejection ?? ''} isOpen={rejection !== null} variant="error" />
                 <Alert
-                    message="Зборот не е пронајден во речникот на Зборле"
-                    isOpen={isWordNotFoundAlertOpen}
+                    message={`Изгубивте, бараниот збор е ${solution ?? ''}`}
+                    isOpen={isGameLost}
                     variant="error"
                 />
-                <Alert message={`Изгубивте, бараниот збор е ${getWordOfDay()}`} isOpen={isGameLost} variant="error" />
                 <Alert message="Копирано во clipboard за споделување" isOpen={shareComplete} variant="success" />
 
                 {/* Header - Title left, buttons right */}
@@ -198,10 +266,10 @@ function App() {
                 <Grid
                     guesses={guesses}
                     currentGuess={currentGuess}
-                    invalid={isNotEnoughLetters || isWordNotFoundAlertOpen}
+                    invalid={isNotEnoughLetters || rejection !== null}
                     win={isWinAnimationStarted}
                 />
-                <Keyboard onChar={onChar} onDelete={onDelete} onEnter={onEnter} guesses={guesses} />
+                <Keyboard onChar={onChar} onDelete={onDelete} onEnter={() => void onEnter()} guesses={guesses} />
                 <WinModal
                     isOpen={isWinModalOpen}
                     handleClose={() => setIsWinModalOpen(false)}
@@ -211,7 +279,7 @@ function App() {
                         setShareComplete(true)
                         return setTimeout(() => {
                             setShareComplete(false)
-                        }, 2000)
+                        }, ALERT_MS)
                     }}
                     timeLeft={timeUntilNextWord}
                 />

@@ -9,6 +9,9 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .env
+activity/.env
+activity/node_modules/
+activity/dist/
 .DS_Store
 README.md
 fly.toml

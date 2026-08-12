@@ -4,9 +4,13 @@
  * Every request goes through `/.proxy/`. Discord serves Activities from a sandboxed
  * iframe whose CSP blocks any request to a host that is not declared as a URL Mapping,
  * and the proxy strips the `/.proxy` prefix before forwarding to our own origin.
+ *
+ * Only endpoints that actually exist server-side live here; the leaderboard and
+ * live-participant calls arrive with their endpoints.
  */
 
 import type { CharStatus } from './statuses'
+import type { ServerStats } from './stats'
 
 const API_BASE = '/.proxy/api'
 
@@ -22,38 +26,19 @@ export type GameState = {
     statuses: CharStatus[][]
     isWon: boolean
     isLost: boolean
-    /** Only ever populated once the game is over. */
+    /** Null until the game is over. The answer is never sent to a winnable board. */
     solution: string | null
     secondsUntilNext: number
+    maxGuesses: number
 }
 
 export type GuessResult =
     | { ok: true; statuses: CharStatus[]; isWon: boolean; isLost: boolean; solution: string | null }
-    | { ok: false; error: 'not_a_word' | 'wrong_length' | 'duplicate' | 'game_over'; message: string }
-
-export type LeaderboardRow = {
-    userId: string
-    displayName: string
-    avatarUrl: string | null
-    played: number
-    won: number
-    currentStreak: number
-    maxStreak: number
-    averageGuesses: number | null
-}
-
-export type Participant = {
-    userId: string
-    displayName: string
-    avatarUrl: string | null
-    guessCount: number
-    isWon: boolean
-    isLost: boolean
-    /** Per-row colours only. Letters are never broadcast, so nobody can leak answers. */
-    rows: CharStatus[][]
-}
-
-class ApiError extends Error {}
+    | {
+          ok: false
+          error: 'not_a_word' | 'not_cyrillic' | 'wrong_length' | 'duplicate' | 'game_over'
+          message: string
+      }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const headers: Record<string, string> = {
@@ -66,22 +51,18 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
     const response = await fetch(`${API_BASE}${path}`, { ...init, headers })
     if (!response.ok) {
-        throw new ApiError(`${init.method ?? 'GET'} ${path} failed: ${response.status}`)
+        throw new Error(`${init.method ?? 'GET'} ${path} -> ${response.status}`)
     }
     return (await response.json()) as T
 }
 
 /** Exchanges the OAuth2 code for an access token. The client secret stays server-side. */
-export const exchangeToken = (code: string) => request<{ access_token: string }>('/token', { method: 'POST', body: JSON.stringify({ code }) })
+export const exchangeToken = (code: string) =>
+    request<{ access_token: string }>('/token', { method: 'POST', body: JSON.stringify({ code }) })
 
-export const fetchState = (instanceId: string | null) =>
-    request<GameState>(`/state${instanceId ? `?instance_id=${encodeURIComponent(instanceId)}` : ''}`)
+export const fetchState = () => request<GameState>('/state')
 
-export const submitGuess = (guess: string, instanceId: string | null) =>
-    request<GuessResult>('/guess', { method: 'POST', body: JSON.stringify({ guess, instance_id: instanceId }) })
+export const submitGuess = (guess: string) =>
+    request<GuessResult>('/guess', { method: 'POST', body: JSON.stringify({ guess }) })
 
-export const fetchLeaderboard = (guildId: string | null) =>
-    request<{ rows: LeaderboardRow[] }>(`/leaderboard${guildId ? `?guild_id=${encodeURIComponent(guildId)}` : ''}`)
-
-export const fetchParticipants = (instanceId: string) =>
-    request<{ participants: Participant[] }>(`/participants?instance_id=${encodeURIComponent(instanceId)}`)
+export const fetchStats = () => request<ServerStats>('/stats')

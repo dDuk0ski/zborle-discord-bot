@@ -9,6 +9,10 @@ app = 'zborle-discord-bot'
 primary_region = 'fra'
 
 [build]
+  [build.args]
+    # Public identifier, baked into the frontend bundle. The secret lives in
+    # `fly secrets` and is only ever read by the Python backend.
+    VITE_DISCORD_CLIENT_ID = '1530458496242421882'
 
 [env]
   # SQLite lives on the mounted volume so stats survive deploys and restarts.
