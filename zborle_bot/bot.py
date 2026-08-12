@@ -116,6 +116,22 @@ def base_embed(index: int, game: Game) -> discord.Embed:
     return embed
 
 
+def remember_player(interaction: discord.Interaction) -> None:
+    """Enroll the player on this server's leaderboard.
+
+    Playing is what puts someone on a board. Reading the actual member list would need
+    the privileged Server Members intent, which this bot deliberately does not request.
+    """
+    if not interaction.guild_id:
+        return
+    client.db.remember_player(
+        interaction.guild_id,
+        interaction.user.id,
+        interaction.user.display_name,
+        interaction.user.display_avatar.url if interaction.user.display_avatar else None,
+    )
+
+
 def countdown_note() -> str:
     return f'Следниот збор за {words.format_countdown(words.time_until_next_word())}.'
 
@@ -132,6 +148,7 @@ async def on_ready() -> None:
 async def guess_command(interaction: discord.Interaction, word: str) -> None:
     # Defer up front: rendering and uploading the PNG can outlast Discord's 3s deadline.
     await interaction.response.defer(ephemeral=True)
+    remember_player(interaction)
     index, game = load_game(interaction.user.id)
 
     if game.is_over:

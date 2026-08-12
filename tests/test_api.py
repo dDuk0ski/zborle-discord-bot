@@ -115,3 +115,64 @@ def test_auth_is_required_without_the_override(client):
     assert client.post('/api/guess', json={'guess': 'отпад'}).status_code == 401
     # Restore so the fixture teardown is a no-op either way.
     app.dependency_overrides[current_user] = lambda: None
+
+
+def test_leaderboard_is_empty_without_a_guild(client):
+    body = client.get('/api/leaderboard').json()
+    assert body['scope'] == 'dm'
+    assert body['rows'] == []
+
+
+def test_playing_enrolls_you_on_that_servers_board(client, solution):
+    # Enrolment happens by playing; reading the member list would need a privileged intent.
+    assert client.get('/api/leaderboard?guild_id=777').json()['rows'] == []
+
+    client.get('/api/state?guild_id=777')
+    client.post('/api/guess', json={'guess': 'отпад'})
+    client.post('/api/guess', json={'guess': solution})
+
+    body = client.get('/api/leaderboard?guild_id=777').json()
+    assert body['scope'] == 'guild'
+    assert len(body['rows']) == 1
+
+    row = body['rows'][0]
+    assert row['displayName'] == 'Tester'
+    assert (row['won'], row['played'], row['currentStreak']) == (1, 1, 1)
+    assert row['averageGuesses'] == 2.0
+
+
+def test_unfinished_games_do_not_appear(client):
+    client.get('/api/state?guild_id=778')
+    client.post('/api/guess', json={'guess': 'отпад'})
+    assert client.get('/api/leaderboard?guild_id=778').json()['rows'] == []
+
+
+def test_boards_are_scoped_per_guild(client, solution):
+    client.get('/api/state?guild_id=900')
+    client.post('/api/guess', json={'guess': solution})
+
+    assert len(client.get('/api/leaderboard?guild_id=900').json()['rows']) == 1
+    # A server the player has never played in must not list them.
+    assert client.get('/api/leaderboard?guild_id=901').json()['rows'] == []
+
+
+def test_leaderboard_ranks_by_wins_then_average_guesses(tmp_path, monkeypatch):
+    monkeypatch.setenv('ZBORLE_DB_PATH', str(tmp_path / 'rank.db'))
+    for module in [m for m in list(sys.modules) if m.startswith('zborle_bot')]:
+        del sys.modules[module]
+
+    from zborle_bot.db import WON, ZborleDB
+
+    db = ZborleDB(tmp_path / 'rank.db')
+    # Same number of wins; the player who needed fewer guesses ranks higher.
+    db.remember_player(5, 1, 'Slow', None)
+    db.remember_player(5, 2, 'Fast', None)
+    db.remember_player(5, 3, 'Loser', None)
+    for index in (10, 11):
+        db.save(1, index, ['А', 'Б', 'В', 'Г'], WON)
+        db.save(2, index, ['А', 'Б'], WON)
+    db.save(3, 10, ['А'], WON)
+
+    rows = db.leaderboard(5)
+    assert [row['displayName'] for row in rows] == ['Fast', 'Slow', 'Loser']
+    db.close()

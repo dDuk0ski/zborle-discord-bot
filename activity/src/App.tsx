@@ -1,4 +1,9 @@
-import { ChartBarIcon, InformationCircleIcon, QuestionMarkCircleIcon } from '@heroicons/react/24/outline'
+import {
+    ChartBarIcon,
+    InformationCircleIcon,
+    QuestionMarkCircleIcon,
+    TrophyIcon,
+} from '@heroicons/react/24/outline'
 import { useCallback, useEffect, useState } from 'react'
 import { Alert } from './components/alerts/Alert'
 import { Grid } from './components/grid/Grid'
@@ -12,7 +17,8 @@ import { convert, LETTERS_EN } from './lib/keyboard'
 import { toGameStats } from './lib/stats'
 import { emptyStats } from './lib/localStorage'
 import { recordGuessStatuses, replaceGuessStatuses } from './lib/statuses'
-import { fetchState, fetchStats, submitGuess } from './lib/api'
+import { fetchLeaderboard, fetchState, fetchStats, submitGuess, type LeaderboardRow } from './lib/api'
+import { LeaderboardModal } from './components/modals/LeaderboardModal'
 import { startSession, type Session } from './lib/discord'
 import { StatsModal } from './components/modals/StatsModals'
 import { ThemeToggle } from './components/ui/ThemeToggle'
@@ -46,6 +52,11 @@ function App() {
     const [timeUntilNextWord, setTimeUntilNextWord] = useState(getTimeUntilNextWord())
     const [stats, setStats] = useState(emptyStats)
 
+    const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false)
+    const [leaderboard, setLeaderboard] = useState<LeaderboardRow[]>([])
+    const [leaderboardScope, setLeaderboardScope] = useState<'guild' | 'dm'>('guild')
+    const [leaderboardLoading, setLeaderboardLoading] = useState(false)
+
     const refreshStats = useCallback(async () => {
         try {
             setStats(toGameStats(await fetchStats()))
@@ -54,9 +65,22 @@ function App() {
         }
     }, [])
 
+    const refreshLeaderboard = useCallback(async (guildId: string | null) => {
+        setLeaderboardLoading(true)
+        try {
+            const result = await fetchLeaderboard(guildId)
+            setLeaderboard(result.rows)
+            setLeaderboardScope(result.scope)
+        } catch {
+            setLeaderboard([])
+        } finally {
+            setLeaderboardLoading(false)
+        }
+    }, [])
+
     /** Pull the authoritative board from the server and mirror it into local state. */
-    const loadState = useCallback(async () => {
-        const state = await fetchState()
+    const loadState = useCallback(async (guildId: string | null = null) => {
+        const state = await fetchState(guildId)
         setSchedule(state.puzzleIndex, state.secondsUntilNext)
         replaceGuessStatuses(state.guesses, state.statuses)
         setGuesses(state.guesses)
@@ -81,11 +105,16 @@ function App() {
                 const active = await startSession()
                 if (cancelled) return
                 setSession(active)
-                await loadState()
+                await loadState(active.guildId)
                 if (!cancelled) await refreshStats()
             } catch (error) {
                 if (!cancelled) {
-                    setBootError(error instanceof Error ? error.message : 'Неуспешно поврзување.')
+                    console.error('[zborle] boot failed', error)
+                    setBootError(
+                        error instanceof Error && error.message
+                            ? error.message
+                            : `Неуспешно поврзување: ${String(error)}`,
+                    )
                 }
             }
         })()
@@ -99,11 +128,11 @@ function App() {
         const timer = setInterval(() => {
             setTimeUntilNextWord(getTimeUntilNextWord())
             if (hasRolledOver()) {
-                void loadState()
+                void loadState(session?.guildId ?? null)
             }
         }, 1000)
         return () => clearInterval(timer)
-    }, [loadState])
+    }, [loadState, session])
 
     useEffect(() => {
         const timeout = setTimeout(() => setIsWinModalOpen(isGameWon), 2500)
@@ -173,6 +202,7 @@ function App() {
                 setTimeout(() => playSound('win'), 500)
                 setIsGameWon(true)
                 void refreshStats()
+                void refreshLeaderboard(session?.guildId ?? null)
                 return
             }
 
@@ -181,6 +211,7 @@ function App() {
                 setTimeout(() => playSound('lose'), 500)
                 flash(setIsGameLost)
                 void refreshStats()
+                void refreshLeaderboard(session?.guildId ?? null)
             }
         } catch {
             playSound('invalid')
@@ -206,9 +237,12 @@ function App() {
     if (bootError) {
         return (
             <div className="min-h-screen bg-white dark:bg-slate-900 flex items-center justify-center p-6">
-                <div className="max-w-sm text-center">
+                <div className="max-w-md text-center">
                     <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100 mb-2">Зборле</h1>
-                    <p className="text-slate-600 dark:text-slate-400">{bootError}</p>
+                    <p className="text-slate-600 dark:text-slate-400 mb-3">Не успеа да се вчита.</p>
+                    <pre className="text-left text-xs bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg p-3 whitespace-pre-wrap break-words">
+                        {bootError}
+                    </pre>
                 </div>
             </div>
         )
@@ -253,6 +287,18 @@ function App() {
                         </button>
                         <div className="w-px h-4 bg-slate-300 dark:bg-slate-600" />
                         <button
+                            onClick={() => {
+                                setIsLeaderboardOpen(true)
+                                void refreshLeaderboard(session.guildId)
+                            }}
+                            className="p-2 rounded-lg transition-all duration-200 hover:bg-slate-200 dark:hover:bg-slate-700 hover:scale-105 active:scale-95 focus:outline-none focus:ring-2 focus:ring-slate-400"
+                            aria-label="Ранг-листа"
+                            title="Ранг-листа"
+                        >
+                            <TrophyIcon className="h-5 w-5 text-slate-600 dark:text-slate-400" />
+                        </button>
+                        <div className="w-px h-4 bg-slate-300 dark:bg-slate-600" />
+                        <button
                             onClick={() => setIsStatsModalOpen(true)}
                             className="p-2 rounded-lg transition-all duration-200 hover:bg-slate-200 dark:hover:bg-slate-700 hover:scale-105 active:scale-95 focus:outline-none focus:ring-2 focus:ring-slate-400"
                             aria-label="Статистика"
@@ -288,6 +334,14 @@ function App() {
                     isOpen={isStatsModalOpen}
                     handleClose={() => setIsStatsModalOpen(false)}
                     gameStats={stats}
+                />
+                <LeaderboardModal
+                    isOpen={isLeaderboardOpen}
+                    handleClose={() => setIsLeaderboardOpen(false)}
+                    rows={leaderboard}
+                    scope={leaderboardScope}
+                    loading={leaderboardLoading}
+                    currentUserId={session.userId}
                 />
                 <AboutModal isOpen={isAboutModalOpen} handleClose={() => setIsAboutModalOpen(false)} />
                 <ShortcutsModal isOpen={isShortcutsModalOpen} handleClose={() => setIsShortcutsModalOpen(false)} />

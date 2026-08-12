@@ -60,7 +60,25 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 export const exchangeToken = (code: string) =>
     request<{ access_token: string }>('/token', { method: 'POST', body: JSON.stringify({ code }) })
 
-export const fetchState = () => request<GameState>('/state')
+export type LeaderboardRow = {
+    userId: string
+    displayName: string
+    avatarUrl: string | null
+    played: number
+    won: number
+    winPercent: number
+    currentStreak: number
+    maxStreak: number
+    averageGuesses: number | null
+}
+
+const withGuild = (path: string, guildId: string | null) =>
+    guildId ? `${path}?guild_id=${encodeURIComponent(guildId)}` : path
+
+export const fetchState = (guildId: string | null = null) => request<GameState>(withGuild('/state', guildId))
+
+export const fetchLeaderboard = (guildId: string | null) =>
+    request<{ rows: LeaderboardRow[]; scope: 'guild' | 'dm' }>(withGuild('/leaderboard', guildId))
 
 export const submitGuess = (guess: string) =>
     request<GuessResult>('/guess', { method: 'POST', body: JSON.stringify({ guess }) })

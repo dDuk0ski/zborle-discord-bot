@@ -26,6 +26,23 @@ CREATE TABLE IF NOT EXISTS games (
     PRIMARY KEY (user_id, puzzle_index)
 );
 CREATE INDEX IF NOT EXISTS games_by_user ON games (user_id, puzzle_index DESC);
+
+-- Who belongs on which server's leaderboard.
+--
+-- Reading a guild's real member list needs the privileged Server Members intent, which
+-- this app deliberately does not request. Instead a player joins a server's board the
+-- first time they actually play there, via a slash command or by launching the Activity.
+-- Games themselves stay global: one puzzle per person per day, ranked in every server
+-- they have played in.
+CREATE TABLE IF NOT EXISTS guild_players (
+    guild_id     INTEGER NOT NULL,
+    user_id      INTEGER NOT NULL,
+    display_name TEXT    NOT NULL DEFAULT '',
+    avatar_url   TEXT,
+    last_seen    TEXT    NOT NULL,
+    PRIMARY KEY (guild_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS guild_players_by_guild ON guild_players (guild_id);
 '''
 
 
@@ -123,6 +140,70 @@ class ZborleDB:
 
     def distribution_rows(self, stats: Stats) -> list[tuple[int, int]]:
         return [(score, stats.distribution.get(score, 0)) for score in range(1, MAX_GUESSES + 1)]
+
+    def remember_player(
+        self, guild_id: int, user_id: int, display_name: str, avatar_url: str | None
+    ) -> None:
+        """Note that a player is active in a server, refreshing their name and avatar."""
+        self.conn.execute(
+            '''INSERT INTO guild_players (guild_id, user_id, display_name, avatar_url, last_seen)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT (guild_id, user_id)
+               DO UPDATE SET display_name = excluded.display_name,
+                             avatar_url = excluded.avatar_url,
+                             last_seen = excluded.last_seen''',
+            (
+                guild_id,
+                user_id,
+                display_name,
+                avatar_url,
+                datetime.now(timezone.utc).isoformat(timespec='seconds'),
+            ),
+        )
+        self.conn.commit()
+
+    def leaderboard(self, guild_id: int) -> list[dict]:
+        """Rank a server's players.
+
+        Stats are computed per player with the same tested code the bot uses, rather than
+        reimplemented as one big aggregate query, because streaks need ordered traversal
+        and duplicating that logic in SQL is how the two would drift apart.
+        """
+        members = self.conn.execute(
+            '''SELECT user_id, display_name, avatar_url FROM guild_players
+               WHERE guild_id = ?''',
+            (guild_id,),
+        ).fetchall()
+
+        rows = []
+        for member in members:
+            stats = self.stats(member['user_id'])
+            if not stats.played:
+                continue
+            total_guesses = sum(score * count for score, count in stats.distribution.items())
+            rows.append(
+                {
+                    'userId': str(member['user_id']),
+                    'displayName': member['display_name'] or 'Играч',
+                    'avatarUrl': member['avatar_url'],
+                    'played': stats.played,
+                    'won': stats.won,
+                    'winPercent': stats.win_percent,
+                    'currentStreak': stats.current_streak,
+                    'maxStreak': stats.max_streak,
+                    'averageGuesses': round(total_guesses / stats.won, 2) if stats.won else None,
+                }
+            )
+
+        # Most wins first; ties broken by fewer average guesses, then longer streak.
+        rows.sort(
+            key=lambda row: (
+                -row['won'],
+                row['averageGuesses'] if row['averageGuesses'] is not None else 99,
+                -row['currentStreak'],
+            )
+        )
+        return rows
 
 
 _shared: ZborleDB | None = None

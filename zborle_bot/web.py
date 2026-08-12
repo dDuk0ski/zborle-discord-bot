@@ -87,10 +87,30 @@ async def token(body: TokenRequest) -> JSONResponse:
     return JSONResponse({'access_token': access_token})
 
 
+def _remember(guild_id: str | None, user: DiscordUser) -> None:
+    """Add the player to a server's leaderboard the first time they play there."""
+    if not guild_id or not guild_id.isdigit():
+        return
+    shared_db().remember_player(int(guild_id), int(user.id), user.display_name, user.avatar_url)
+
+
 @app.get('/api/state')
-async def state(user: DiscordUser = Depends(current_user)) -> JSONResponse:
+async def state(guild_id: str | None = None, user: DiscordUser = Depends(current_user)) -> JSONResponse:
+    _remember(guild_id, user)
     index, game = _load(user.id)
     return JSONResponse(_state_payload(index, game))
+
+
+@app.get('/api/leaderboard')
+async def leaderboard(guild_id: str | None = None, user: DiscordUser = Depends(current_user)) -> JSONResponse:
+    # No guild means a DM or group DM: personal stats still count, but there is no server
+    # to rank within, so the board is empty rather than wrong.
+    if not guild_id or not guild_id.isdigit():
+        return JSONResponse({'rows': [], 'scope': 'dm'})
+
+    # Deliberately no enrolment here. Reading a board must not join you to it, or a
+    # player would appear on the leaderboard of every server they merely looked at.
+    return JSONResponse({'rows': shared_db().leaderboard(int(guild_id)), 'scope': 'guild'})
 
 
 @app.post('/api/guess')
