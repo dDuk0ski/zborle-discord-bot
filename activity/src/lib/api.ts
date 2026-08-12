@@ -110,3 +110,9 @@ export const submitGuess = (
     })
 
 export const fetchStats = () => request<ServerStats>('/stats')
+
+export const shareToChannel = (instanceId: string) =>
+    request<{ ok: boolean; error: string | null }>('/share', {
+        method: 'POST',
+        body: JSON.stringify({ instance_id: instanceId }),
+    })

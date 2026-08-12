@@ -50,7 +50,7 @@ function App() {
     const [isNotEnoughLetters, setIsNotEnoughLetters] = useState(false)
     const [rejection, setRejection] = useState<string | null>(null)
     const [isGameLost, setIsGameLost] = useState(false)
-    const [shareComplete, setShareComplete] = useState(false)
+    const [shareNotice, setShareNotice] = useState<string | null>(null)
 
     const [timeUntilNextWord, setTimeUntilNextWord] = useState(getTimeUntilNextWord())
     const [stats, setStats] = useState(emptyStats)
@@ -295,7 +295,11 @@ function App() {
                     isOpen={isGameLost}
                     variant="error"
                 />
-                <Alert message="Копирано во clipboard за споделување" isOpen={shareComplete} variant="success" />
+                <Alert
+                    message={shareNotice ?? ''}
+                    isOpen={shareNotice !== null}
+                    variant={shareNotice === 'Споделувањето не успеа' ? 'error' : 'success'}
+                />
 
                 {/* Header - Title left, buttons right */}
                 <header className="flex items-center justify-between mb-2 mx-auto w-[300px]">
@@ -350,14 +354,19 @@ function App() {
                     isOpen={isWinModalOpen}
                     handleClose={() => setIsWinModalOpen(false)}
                     guesses={guesses}
-                    handleShare={() => {
+                    handleShare={(outcome) => {
                         setIsWinModalOpen(false)
-                        setShareComplete(true)
-                        return setTimeout(() => {
-                            setShareComplete(false)
-                        }, ALERT_MS)
+                        setShareNotice(
+                            outcome === 'posted'
+                                ? 'Споделено во каналот'
+                                : outcome === 'copied'
+                                  ? 'Копирано во clipboard за споделување'
+                                  : 'Споделувањето не успеа',
+                        )
+                        setTimeout(() => setShareNotice(null), ALERT_MS)
                     }}
                     timeLeft={timeUntilNextWord}
+                    instanceId={session.instanceId}
                 />
                 <InfoModal isOpen={isInfoModalOpen} handleClose={() => setIsInfoModalOpen(false)} />
                 <StatsModal

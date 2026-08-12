@@ -2,7 +2,7 @@ import { Fragment } from 'react'
 import { Dialog, DialogTitle, Transition, TransitionChild } from '@headlessui/react'
 import { CheckIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import { MiniGrid } from '../mini-grid/MiniGrid'
-import { shareStatus } from '../../lib/share'
+import { shareStatus, type ShareOutcome } from '../../lib/share'
 import { Time } from '../../lib/words'
 import { TimeLeft } from './TimeLeft'
 
@@ -10,11 +10,14 @@ type Props = {
     isOpen: boolean
     handleClose: () => void
     guesses: string[]
-    handleShare: () => void
+    /** Receives what actually happened, so the alert can tell the truth. */
+    handleShare: (outcome: ShareOutcome) => void
     timeLeft: Time
+    /** Present inside Discord: sharing posts to the channel instead of the clipboard. */
+    instanceId: string | null
 }
 
-export const WinModal = ({ isOpen, handleClose, guesses, handleShare, timeLeft }: Props) => {
+export const WinModal = ({ isOpen, handleClose, guesses, handleShare, timeLeft, instanceId }: Props) => {
     return (
         <Transition show={isOpen} as={Fragment}>
             <Dialog as="div" className="fixed z-10 inset-0 overflow-y-auto" onClose={handleClose}>
@@ -83,8 +86,7 @@ export const WinModal = ({ isOpen, handleClose, guesses, handleShare, timeLeft }
                                     type="button"
                                     className="inline-flex justify-center w-full rounded-md border border-transparent shadow-sm px-4 py-2 bg-green-600 dark:bg-green-700 text-base font-medium text-white hover:bg-green-700 dark:hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 dark:focus:ring-offset-slate-800 sm:text-sm transition-colors"
                                     onClick={() => {
-                                        shareStatus(guesses)
-                                        handleShare()
+                                        void shareStatus(guesses, instanceId).then(handleShare)
                                     }}
                                 >
                                     Сподели

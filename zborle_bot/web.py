@@ -206,6 +206,29 @@ async def guess(body: GuessRequest, user: DiscordUser = Depends(current_user)) -
     )
 
 
+class ShareRequest(BaseModel):
+    instance_id: str
+
+
+@app.post('/api/share')
+async def share(body: ShareRequest, user: DiscordUser = Depends(current_user)) -> JSONResponse:
+    """Post the player's emoji grid to the channel.
+
+    Built server-side from the stored game rather than trusting a grid the client sends,
+    which would let anyone post a fake perfect score.
+    """
+    index, game = _load(user.id)
+    if not game.is_over:
+        return JSONResponse({'ok': False, 'error': 'not_finished'})
+
+    if sessions is None:
+        return JSONResponse({'ok': False, 'error': 'unavailable'})
+
+    content = f'<@{user.id}>\n{game.share_text(index)}'
+    posted = await sessions.share(body.instance_id, content)
+    return JSONResponse({'ok': posted, 'error': None if posted else 'no_channel'})
+
+
 @app.get('/api/stats')
 async def stats(user: DiscordUser = Depends(current_user)) -> JSONResponse:
     computed = shared_db().stats(int(user.id))

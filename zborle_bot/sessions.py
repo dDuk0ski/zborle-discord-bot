@@ -192,6 +192,30 @@ class SessionManager:
             return f'{line}\nНикој не го погоди денес.'
         return line
 
+    async def share(self, instance_id: str, content: str) -> bool:
+        """Post a player's result to the session's channel.
+
+        Discord blocks clipboard writes inside the Activity iframe, so "copy your grid"
+        cannot work there. Posting through the bot achieves what sharing is actually for.
+        """
+        session = self._db.session(instance_id)
+        if session is None or not session['channel_id']:
+            return False
+
+        channel = self._client.get_channel(session['channel_id'])
+        if channel is None:
+            try:
+                channel = await self._client.fetch_channel(session['channel_id'])
+            except (discord.NotFound, discord.Forbidden):
+                return False
+
+        try:
+            await channel.send(content)
+            return True
+        except discord.HTTPException:
+            log.exception('Неуспешно споделување за сесијата %s', instance_id)
+            return False
+
     async def sweep(self) -> None:
         """Forget yesterday's instances so the tables do not grow without bound."""
         for instance_id in self._db.stale_sessions(words.puzzle_index()):

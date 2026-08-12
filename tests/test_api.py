@@ -242,3 +242,22 @@ def test_summary_channel_round_trip(tmp_path, monkeypatch):
     db.set_summary_channel(7, None)
     assert db.guilds_with_summary() == []
     db.close()
+
+
+def test_share_requires_a_finished_game(client):
+    body = client.post('/api/share', json={'instance_id': 'inst-x'}).json()
+    assert body['ok'] is False
+    assert body['error'] == 'not_finished'
+
+
+def test_share_text_is_built_server_side(client, solution):
+    """The posted grid comes from stored guesses, so a client cannot fake a 1/6."""
+    from zborle_bot.board import Game
+
+    client.post('/api/guess', json={'guess': 'отпад'})
+    client.post('/api/guess', json={'guess': solution})
+
+    game = Game(solution, ['ОТПАД', solution])
+    text = game.share_text(1)
+    assert '🟩🟩🟩🟩🟩' in text
+    assert 'Зборле 1 2/6' in text

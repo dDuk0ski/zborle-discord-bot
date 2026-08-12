@@ -43,6 +43,15 @@ def _score_rows(guesses: list[str], solution: str) -> list[list[Status]]:
     return [score_guess(guess, solution) for guess in guesses]
 
 
+def _flames(streak: int) -> str:
+    """More fire for longer streaks, capped so the line stays readable."""
+    if streak >= 100:
+        return '🔥🔥🔥'
+    if streak >= 30:
+        return '🔥🔥'
+    return '🔥'
+
+
 def _mention_groups(results: list[dict]) -> list[str]:
     """Group players by score, best first, as `👑 4/6: @a @b` lines."""
     by_score: dict[int | None, list[str]] = {}
@@ -77,9 +86,10 @@ async def build_summary(db: ZborleDB, guild_id: int, puzzle_index: int) -> tuple
         for result, avatar in zip(results, avatars)
     ]
 
+    # Streak wording stays in English by request, matching official Wordle's phrasing.
     streak = db.group_streak(guild_id, puzzle_index)
     header = (
-        f'Вашата група е на серија од {streak} дена! 🔥\nЕве ги вчерашните резултати:'
+        f'Your group is on a {streak} day streak! {_flames(streak)}\nЕве ги вчерашните резултати:'
         if streak > 1
         else 'Еве ги вчерашните резултати:'
     )
