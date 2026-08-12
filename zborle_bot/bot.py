@@ -15,6 +15,10 @@ from .words import GuessError
 
 log = logging.getLogger(__name__)
 
+# Discord's PRIMARY_ENTRY_POINT application command type, created automatically when
+# Activities are enabled. discord.py 2.7's AppCommandType does not include it.
+ENTRY_POINT_COMMAND_TYPE = 4
+
 EMBED_COLOR = discord.Color.from_str(config.COLOR_CORRECT)
 EMBED_COLOR_LOST = discord.Color.from_str(config.COLOR_ABSENT)
 
@@ -42,6 +46,15 @@ class ZborleClient(discord.Client):
         self.db = shared_db()
 
     async def setup_hook(self) -> None:
+        # A sync failure must not take the process down. setup_hook runs inside
+        # Client.start(), so raising here kills the bot and, because both run under one
+        # asyncio.gather, the Activity's web server with it.
+        try:
+            await self._sync_commands()
+        except Exception:
+            log.exception('Синхронизацијата на командите не успеа; ботот продолжува со постоечките')
+
+    async def _sync_commands(self) -> None:
         dev_guild = os.getenv('DEV_GUILD_ID')
         if dev_guild:
             # Guild-scoped commands appear instantly; global ones can take up to an hour.
@@ -50,8 +63,31 @@ class ZborleClient(discord.Client):
             await self.tree.sync(guild=guild)
             log.info('Синхронизирани команди за тест-серверот %s', dev_guild)
         else:
-            await self.tree.sync()
-            log.info('Синхронизирани глобални команди')
+            await self._sync_global_preserving_entry_point()
+
+    async def _sync_global_preserving_entry_point(self) -> None:
+        """Bulk-upsert our commands without deleting the Activity's entry point.
+
+        Enabling Activities makes Discord create a type-4 "launch" command that we do not
+        own and cannot rebuild from the tree. A plain tree.sync() bulk-overwrites the
+        global command list, which would remove it, and Discord rejects the whole request
+        with error 50240. discord.py 2.7 has no concept of entry-point commands, so we
+        carry the existing one through by hand.
+        """
+        application_id = self.application_id
+        assert application_id is not None
+
+        existing = await self.http.get_global_commands(application_id)
+        preserved = [command for command in existing if command.get('type') == ENTRY_POINT_COMMAND_TYPE]
+
+        payload = [command.to_dict(self.tree) for command in self.tree.get_commands()]
+        await self.http.bulk_upsert_global_commands(application_id, payload=payload + preserved)
+
+        log.info(
+            'Синхронизирани %s глобални команди (задржани %s entry point)',
+            len(payload),
+            len(preserved),
+        )
 
     async def close(self) -> None:
         self.db.close()
