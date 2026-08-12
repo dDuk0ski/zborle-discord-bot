@@ -215,6 +215,20 @@ class ZborleDB:
 
     # ---- Daily summary support ----
 
+    def remember_play_channel(self, guild_id: int, channel_id: int) -> None:
+        """Adopt the channel people actually play in, unless one was chosen explicitly.
+
+        Official Wordle needs no setup: it posts where the game is happening. This makes
+        the daily summary work with zero commands, while an explicit /преглед still wins.
+        """
+        self.conn.execute(
+            '''INSERT INTO guild_config (guild_id, summary_channel_id) VALUES (?, ?)
+               ON CONFLICT (guild_id) DO UPDATE SET
+                 summary_channel_id = COALESCE(guild_config.summary_channel_id, excluded.summary_channel_id)''',
+            (guild_id, channel_id),
+        )
+        self.conn.commit()
+
     def set_summary_channel(self, guild_id: int, channel_id: int | None) -> None:
         self.conn.execute(
             '''INSERT INTO guild_config (guild_id, summary_channel_id) VALUES (?, ?)

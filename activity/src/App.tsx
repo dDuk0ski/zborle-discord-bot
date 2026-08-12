@@ -79,8 +79,8 @@ function App() {
     }, [])
 
     /** Pull the authoritative board from the server and mirror it into local state. */
-    const loadState = useCallback(async (guildId: string | null = null) => {
-        const state = await fetchState(guildId)
+    const loadState = useCallback(async (guildId: string | null = null, channelId: string | null = null) => {
+        const state = await fetchState(guildId, channelId)
         setSchedule(state.puzzleIndex, state.secondsUntilNext)
         replaceGuessStatuses(state.guesses, state.statuses)
         setGuesses(state.guesses)
@@ -105,7 +105,7 @@ function App() {
                 const active = await startSession()
                 if (cancelled) return
                 setSession(active)
-                await loadState(active.guildId)
+                await loadState(active.guildId, active.channelId)
                 if (!cancelled) await refreshStats()
             } catch (error) {
                 if (!cancelled) {
@@ -128,7 +128,7 @@ function App() {
         const timer = setInterval(() => {
             setTimeUntilNextWord(getTimeUntilNextWord())
             if (hasRolledOver()) {
-                void loadState(session?.guildId ?? null)
+                void loadState(session?.guildId ?? null, session?.channelId ?? null)
             }
         }, 1000)
         return () => clearInterval(timer)

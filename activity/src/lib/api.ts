@@ -75,7 +75,14 @@ export type LeaderboardRow = {
 const withGuild = (path: string, guildId: string | null) =>
     guildId ? `${path}?guild_id=${encodeURIComponent(guildId)}` : path
 
-export const fetchState = (guildId: string | null = null) => request<GameState>(withGuild('/state', guildId))
+export const fetchState = (guildId: string | null = null, channelId: string | null = null) => {
+    const params = new URLSearchParams()
+    if (guildId) params.set('guild_id', guildId)
+    // Lets the server post the daily summary where the game is actually played.
+    if (channelId) params.set('channel_id', channelId)
+    const query = params.toString()
+    return request<GameState>(query ? `/state?${query}` : '/state')
+}
 
 export const fetchLeaderboard = (guildId: string | null) =>
     request<{ rows: LeaderboardRow[]; scope: 'guild' | 'dm' }>(withGuild('/leaderboard', guildId))

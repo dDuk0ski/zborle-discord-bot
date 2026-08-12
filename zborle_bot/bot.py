@@ -277,8 +277,12 @@ async def stats_command(interaction: discord.Interaction) -> None:
 # from members without Manage Server, so it does not even autocomplete for them, which
 # made it unusable in servers where players are not admins. The worst case here is one
 # misdirected message a day.
+#
+# The union matters: annotating only TextChannel makes discord.py refuse announcement
+# channels, forums and threads outright, raising before the command body ever runs.
 async def summary_channel_command(
-    interaction: discord.Interaction, channel: discord.TextChannel | None = None
+    interaction: discord.Interaction,
+    channel: discord.TextChannel | discord.Thread | None = None,
 ) -> None:
     if not interaction.guild_id:
         await interaction.response.send_message('Оваа команда работи само на сервер.', ephemeral=True)

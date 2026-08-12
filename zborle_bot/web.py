@@ -87,16 +87,24 @@ async def token(body: TokenRequest) -> JSONResponse:
     return JSONResponse({'access_token': access_token})
 
 
-def _remember(guild_id: str | None, user: DiscordUser) -> None:
+def _remember(guild_id: str | None, user: DiscordUser, channel_id: str | None = None) -> None:
     """Add the player to a server's leaderboard the first time they play there."""
     if not guild_id or not guild_id.isdigit():
         return
-    shared_db().remember_player(int(guild_id), int(user.id), user.display_name, user.avatar_url)
+    db = shared_db()
+    db.remember_player(int(guild_id), int(user.id), user.display_name, user.avatar_url)
+    if channel_id and channel_id.isdigit():
+        # So the daily summary lands where people play, with no setup command.
+        db.remember_play_channel(int(guild_id), int(channel_id))
 
 
 @app.get('/api/state')
-async def state(guild_id: str | None = None, user: DiscordUser = Depends(current_user)) -> JSONResponse:
-    _remember(guild_id, user)
+async def state(
+    guild_id: str | None = None,
+    channel_id: str | None = None,
+    user: DiscordUser = Depends(current_user),
+) -> JSONResponse:
+    _remember(guild_id, user, channel_id)
     index, game = _load(user.id)
     return JSONResponse(_state_payload(index, game))
 
