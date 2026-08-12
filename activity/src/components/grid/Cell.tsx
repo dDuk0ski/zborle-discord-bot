@@ -23,7 +23,7 @@ export const Cell = ({ value, status, completed = false, delay = 0, invalid = fa
     const showColor = animationState === AnimationState.FlipOut || animationState === AnimationState.Win
 
     let classes = classnames(
-        'w-14 h-14 border-2 flex items-center justify-center mx-0.5 text-2xl font-bold rounded transition-all duration-200',
+        'w-12 h-12 sm:w-14 sm:h-14 border-2 flex items-center justify-center mx-0.5 text-xl sm:text-2xl font-bold rounded transition-all duration-200',
         {
             // Empty cell
             'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600': !status && !value,

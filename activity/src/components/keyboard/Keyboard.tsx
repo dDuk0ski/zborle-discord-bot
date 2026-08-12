@@ -44,18 +44,18 @@ export const Keyboard = ({ onChar, onDelete, onEnter, guesses }: Props) => {
     }, [onEnter, onDelete, onChar])
 
     return (
-        <div className="mx-1">
-            <div className="flex justify-center mb-1">
+        <div className="mx-1 max-w-[500px] sm:mx-auto">
+            <div className="flex justify-center mb-1 w-full">
                 {FIRST_ROW.map((letter) => (
                     <Key key={letter} value={letter as CharValue} onClick={onClick} status={charStatuses[letter]} />
                 ))}
             </div>
-            <div className="flex justify-center mb-1">
+            <div className="flex justify-center mb-1 w-full">
                 {SECOND_ROW.map((letter) => (
                     <Key key={letter} value={letter as CharValue} onClick={onClick} status={charStatuses[letter]} />
                 ))}
             </div>
-            <div className="flex justify-center">
+            <div className="flex justify-center w-full">
                 <Key width={65.4} value="ENTER" onClick={onClick}>
                     ENTER
                 </Key>

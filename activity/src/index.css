@@ -260,3 +260,21 @@ body {
 .dark ::-webkit-scrollbar-thumb:hover {
     background: #64748b;
 }
+
+/* Mobile Activity panels sit under the notch and the home indicator, so the board and
+   keyboard need the device's safe-area insets or they get clipped. env() resolves to 0
+   on desktop, which leaves that layout untouched. */
+body {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+/* Discord's mobile webview double-taps to zoom otherwise, which makes fast guessing
+   feel broken. */
+button,
+[role='button'] {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}

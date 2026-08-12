@@ -19,7 +19,7 @@ export const Participants = ({ players, currentUserId }: Props) => {
     }
 
     return (
-        <div className="mx-auto w-[300px] mt-4 flex flex-col gap-2">
+        <div className="mx-auto w-full max-w-[300px] mt-4 flex flex-col gap-2">
             {others.map((player) => (
                 <div key={player.userId} className="flex items-center gap-2">
                     {player.avatarUrl ? (

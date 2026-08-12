@@ -287,7 +287,7 @@ function App() {
 
     return (
         <div className="min-h-screen bg-white dark:bg-slate-900 transition-colors duration-300">
-            <div className="py-8 max-w-7xl mx-auto sm:px-6 lg:px-8">
+            <div className="py-4 sm:py-8 max-w-7xl mx-auto px-2 sm:px-6 lg:px-8">
                 <Alert message="Немате внесено доволно букви" isOpen={isNotEnoughLetters} variant="error" />
                 <Alert message={rejection ?? ''} isOpen={rejection !== null} variant="error" />
                 <Alert
@@ -302,7 +302,7 @@ function App() {
                 />
 
                 {/* Header - Title left, buttons right */}
-                <header className="flex items-center justify-between mb-2 mx-auto w-[300px]">
+                <header className="flex items-center justify-between mb-2 mx-auto w-full max-w-[300px]">
                     {/* Left: Title */}
                     <h1 className="text-3xl text-slate-800 dark:text-slate-100 tracking-wider uppercase font-bold">
                         Зборле
