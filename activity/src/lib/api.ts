@@ -20,6 +20,8 @@ export const setAccessToken = (token: string) => {
     accessToken = token
 }
 
+export const getAccessToken = () => accessToken
+
 export type GameState = {
     puzzleIndex: number
     guesses: string[]
@@ -75,11 +77,17 @@ export type LeaderboardRow = {
 const withGuild = (path: string, guildId: string | null) =>
     guildId ? `${path}?guild_id=${encodeURIComponent(guildId)}` : path
 
-export const fetchState = (guildId: string | null = null, channelId: string | null = null) => {
+export const fetchState = (
+    guildId: string | null = null,
+    channelId: string | null = null,
+    instanceId: string | null = null,
+) => {
     const params = new URLSearchParams()
     if (guildId) params.set('guild_id', guildId)
     // Lets the server post the daily summary where the game is actually played.
     if (channelId) params.set('channel_id', channelId)
+    // Ties this player to the live session message for their activity instance.
+    if (instanceId) params.set('instance_id', instanceId)
     const query = params.toString()
     return request<GameState>(query ? `/state?${query}` : '/state')
 }
@@ -87,7 +95,18 @@ export const fetchState = (guildId: string | null = null, channelId: string | nu
 export const fetchLeaderboard = (guildId: string | null) =>
     request<{ rows: LeaderboardRow[]; scope: 'guild' | 'dm' }>(withGuild('/leaderboard', guildId))
 
-export const submitGuess = (guess: string) =>
-    request<GuessResult>('/guess', { method: 'POST', body: JSON.stringify({ guess }) })
+export const submitGuess = (
+    guess: string,
+    context: { instanceId?: string | null; guildId?: string | null; channelId?: string | null } = {},
+) =>
+    request<GuessResult>('/guess', {
+        method: 'POST',
+        body: JSON.stringify({
+            guess,
+            instance_id: context.instanceId ?? null,
+            guild_id: context.guildId ?? null,
+            channel_id: context.channelId ?? null,
+        }),
+    })
 
 export const fetchStats = () => request<ServerStats>('/stats')

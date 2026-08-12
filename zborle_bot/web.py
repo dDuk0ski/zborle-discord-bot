@@ -12,22 +12,35 @@ Every handler is `async def` on purpose: FastAPI runs sync handlers in a worker 
 which would touch the SQLite connection from a thread the bot is not on.
 """
 
+import asyncio
+import logging
 import os
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import words
-from .auth import DiscordUser, current_user, exchange_code
-from .board import Game, Status
+from .auth import DiscordUser, current_user, exchange_code, resolve_user
+from .board import Game, Status, score_guess
 from .config import BASE_DIR, MAX_GUESSES
 from .db import IN_PROGRESS, LOST, WON, shared_db
+from .live import hub
 from .words import GuessError
 
+# Set by the runner once the bot exists; the web server starts first.
+sessions = None
+
+
+def set_session_manager(manager) -> None:
+    global sessions
+    sessions = manager
+
 STATIC_DIR = Path(os.getenv('ZBORLE_STATIC_DIR', BASE_DIR / 'activity' / 'dist'))
+
+log = logging.getLogger(__name__)
 
 STATUS_NAMES = {Status.ABSENT: 'absent', Status.PRESENT: 'present', Status.CORRECT: 'correct'}
 
@@ -41,6 +54,8 @@ class TokenRequest(BaseModel):
 class GuessRequest(BaseModel):
     guess: str
     instance_id: str | None = None
+    guild_id: str | None = None
+    channel_id: str | None = None
 
 
 def _statuses(game: Game) -> list[list[str]]:
@@ -102,11 +117,47 @@ def _remember(guild_id: str | None, user: DiscordUser, channel_id: str | None = 
 async def state(
     guild_id: str | None = None,
     channel_id: str | None = None,
+    instance_id: str | None = None,
     user: DiscordUser = Depends(current_user),
 ) -> JSONResponse:
     _remember(guild_id, user, channel_id)
+    if sessions is not None:
+        sessions.touch(instance_id, guild_id, channel_id, user.id)
     index, game = _load(user.id)
     return JSONResponse(_state_payload(index, game))
+
+
+async def _broadcast_progress(instance_id: str | None) -> None:
+    """Tell everyone in the instance how far each player has got.
+
+    Colours and counts only. Sending letters would let a spectator reconstruct the
+    answer from someone else's finished board.
+    """
+    if not instance_id:
+        return
+
+    db = shared_db()
+    session = db.session(instance_id)
+    if session is None:
+        return
+
+    solution = words.word_of_day(session['puzzle_index'])
+    players = []
+    for board in db.session_boards(instance_id):
+        rows = [[STATUS_NAMES[s] for s in score_guess(guess, solution)] for guess in board['guesses']]
+        players.append(
+            {
+                'userId': board['userId'],
+                'displayName': board['displayName'],
+                'avatarUrl': board['avatarUrl'],
+                'guessCount': len(board['guesses']),
+                'isWon': board['status'] == WON,
+                'isLost': board['status'] == LOST,
+                'rows': rows,
+            }
+        )
+
+    await hub.broadcast(instance_id, {'type': 'participants', 'players': players})
 
 
 @app.get('/api/leaderboard')
@@ -136,6 +187,14 @@ async def guess(body: GuessRequest, user: DiscordUser = Depends(current_user)) -
     status = WON if game.is_won else LOST if game.is_lost else IN_PROGRESS
     shared_db().save(int(user.id), index, game.guesses, status)
 
+    # Update the channel message and everyone watching, after the guess is committed.
+    if body.instance_id:
+        _remember(body.guild_id, user, body.channel_id)
+        if sessions is not None:
+            sessions.touch(body.instance_id, body.guild_id, body.channel_id, user.id)
+            sessions.schedule(body.instance_id)
+        await _broadcast_progress(body.instance_id)
+
     return JSONResponse(
         {
             'ok': True,
@@ -159,6 +218,49 @@ async def stats(user: DiscordUser = Depends(current_user)) -> JSONResponse:
             'distribution': {str(k): v for k, v in computed.distribution.items()},
         }
     )
+
+
+@app.websocket('/api/ws')
+async def live_socket(socket: WebSocket) -> None:
+    """Live progress within one activity instance.
+
+    The client authenticates in its first message rather than a query string, so the
+    access token never lands in a URL, proxy log or history entry.
+    """
+    await socket.accept()
+    instance_id: str | None = None
+
+    try:
+        hello = await asyncio.wait_for(socket.receive_json(), timeout=10)
+    except (asyncio.TimeoutError, WebSocketDisconnect, ValueError):
+        await socket.close(code=4001)
+        return
+
+    token = hello.get('token')
+    instance_id = hello.get('instance_id')
+    if not token or not instance_id:
+        await socket.close(code=4001)
+        return
+
+    try:
+        await resolve_user(token)
+    except HTTPException:
+        await socket.close(code=4003)
+        return
+
+    await hub.join(instance_id, socket)
+    try:
+        await _broadcast_progress(instance_id)
+        while True:
+            # The client sends nothing meaningful; this keeps the socket open and
+            # notices disconnects promptly.
+            await socket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        log.debug('WebSocket за %s се затвори', instance_id, exc_info=True)
+    finally:
+        await hub.leave(instance_id, socket)
 
 
 def mount_static() -> None:

@@ -44,6 +44,27 @@ CREATE TABLE IF NOT EXISTS guild_players (
 );
 CREATE INDEX IF NOT EXISTS guild_players_by_guild ON guild_players (guild_id);
 
+-- Live Activity sessions, one row per Discord activity instance.
+--
+-- The message id is persisted rather than held in memory so a redeploy mid-game keeps
+-- editing the same message instead of orphaning it and posting a duplicate.
+CREATE TABLE IF NOT EXISTS sessions (
+    instance_id  TEXT    NOT NULL PRIMARY KEY,
+    guild_id     INTEGER,
+    channel_id   INTEGER,
+    message_id   INTEGER,
+    puzzle_index INTEGER NOT NULL,
+    updated_at   TEXT    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS session_players (
+    instance_id TEXT    NOT NULL,
+    user_id     INTEGER NOT NULL,
+    joined_at   TEXT    NOT NULL,
+    PRIMARY KEY (instance_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS session_players_by_instance ON session_players (instance_id);
+
 -- Per-server settings. Only the daily summary channel for now.
 CREATE TABLE IF NOT EXISTS guild_config (
     guild_id           INTEGER NOT NULL PRIMARY KEY,
@@ -212,6 +233,89 @@ class ZborleDB:
         )
         return rows
 
+
+    # ---- Live session support ----
+
+    def join_session(
+        self, instance_id: str, guild_id: int | None, channel_id: int | None, puzzle_index: int, user_id: int
+    ) -> bool:
+        """Register a player in an activity instance. True if they were not already in it."""
+        now = datetime.now(timezone.utc).isoformat(timespec='seconds')
+        self.conn.execute(
+            '''INSERT INTO sessions (instance_id, guild_id, channel_id, puzzle_index, updated_at)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT (instance_id) DO UPDATE SET
+                 channel_id = COALESCE(excluded.channel_id, sessions.channel_id),
+                 guild_id = COALESCE(excluded.guild_id, sessions.guild_id),
+                 updated_at = excluded.updated_at''',
+            (instance_id, guild_id, channel_id, puzzle_index, now),
+        )
+        cursor = self.conn.execute(
+            '''INSERT INTO session_players (instance_id, user_id, joined_at) VALUES (?, ?, ?)
+               ON CONFLICT (instance_id, user_id) DO NOTHING''',
+            (instance_id, user_id, now),
+        )
+        self.conn.commit()
+        return cursor.rowcount > 0
+
+    def session(self, instance_id: str) -> dict | None:
+        row = self.conn.execute('SELECT * FROM sessions WHERE instance_id = ?', (instance_id,)).fetchone()
+        return dict(row) if row else None
+
+    def set_session_message(self, instance_id: str, message_id: int) -> None:
+        self.conn.execute(
+            'UPDATE sessions SET message_id = ? WHERE instance_id = ?', (message_id, instance_id)
+        )
+        self.conn.commit()
+
+    def session_boards(self, instance_id: str) -> list[dict]:
+        """Every player in an instance with their board for that instance's puzzle.
+
+        Ordered by join time so cards do not reshuffle between edits, which would make
+        the message look like it is flickering.
+        """
+        session = self.session(instance_id)
+        if session is None:
+            return []
+
+        rows = self.conn.execute(
+            '''SELECT sp.user_id, sp.joined_at, g.guesses, g.status
+               FROM session_players sp
+               LEFT JOIN games g
+                 ON g.user_id = sp.user_id AND g.puzzle_index = ?
+               WHERE sp.instance_id = ?
+               ORDER BY sp.joined_at, sp.user_id''',
+            (session['puzzle_index'], instance_id),
+        ).fetchall()
+
+        boards = []
+        for row in rows:
+            names = self.conn.execute(
+                '''SELECT display_name, avatar_url FROM guild_players
+                   WHERE user_id = ? ORDER BY last_seen DESC LIMIT 1''',
+                (row['user_id'],),
+            ).fetchone()
+            boards.append(
+                {
+                    'userId': str(row['user_id']),
+                    'displayName': (names['display_name'] if names else '') or 'Играч',
+                    'avatarUrl': names['avatar_url'] if names else None,
+                    'guesses': row['guesses'].split(',') if row['guesses'] else [],
+                    'status': row['status'],
+                }
+            )
+        return boards
+
+    def stale_sessions(self, older_than_index: int) -> list[str]:
+        rows = self.conn.execute(
+            'SELECT instance_id FROM sessions WHERE puzzle_index < ?', (older_than_index,)
+        ).fetchall()
+        return [row['instance_id'] for row in rows]
+
+    def drop_session(self, instance_id: str) -> None:
+        self.conn.execute('DELETE FROM session_players WHERE instance_id = ?', (instance_id,))
+        self.conn.execute('DELETE FROM sessions WHERE instance_id = ?', (instance_id,))
+        self.conn.commit()
 
     # ---- Daily summary support ----
 

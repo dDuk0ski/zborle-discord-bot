@@ -19,6 +19,9 @@ import { emptyStats } from './lib/localStorage'
 import { recordGuessStatuses, replaceGuessStatuses } from './lib/statuses'
 import { fetchLeaderboard, fetchState, fetchStats, submitGuess, type LeaderboardRow } from './lib/api'
 import { LeaderboardModal } from './components/modals/LeaderboardModal'
+import { Participants } from './components/live/Participants'
+import { LiveConnection, type Participant } from './lib/live'
+import { getAccessToken } from './lib/api'
 import { startSession, type Session } from './lib/discord'
 import { StatsModal } from './components/modals/StatsModals'
 import { ThemeToggle } from './components/ui/ThemeToggle'
@@ -57,6 +60,8 @@ function App() {
     const [leaderboardScope, setLeaderboardScope] = useState<'guild' | 'dm'>('guild')
     const [leaderboardLoading, setLeaderboardLoading] = useState(false)
 
+    const [participants, setParticipants] = useState<Participant[]>([])
+
     const refreshStats = useCallback(async () => {
         try {
             setStats(toGameStats(await fetchStats()))
@@ -79,22 +84,42 @@ function App() {
     }, [])
 
     /** Pull the authoritative board from the server and mirror it into local state. */
-    const loadState = useCallback(async (guildId: string | null = null, channelId: string | null = null) => {
-        const state = await fetchState(guildId, channelId)
-        setSchedule(state.puzzleIndex, state.secondsUntilNext)
-        replaceGuessStatuses(state.guesses, state.statuses)
-        setGuesses(state.guesses)
-        setSolution(state.solution)
-        setIsGameWon(state.isWon)
-        setTimeUntilNextWord(getTimeUntilNextWord())
-        if (state.guesses.length === 0) {
-            setIsInfoModalOpen(true)
+    const loadState = useCallback(
+        async (
+            guildId: string | null = null,
+            channelId: string | null = null,
+            instanceId: string | null = null,
+        ) => {
+            const state = await fetchState(guildId, channelId, instanceId)
+            setSchedule(state.puzzleIndex, state.secondsUntilNext)
+            replaceGuessStatuses(state.guesses, state.statuses)
+            setGuesses(state.guesses)
+            setSolution(state.solution)
+            setIsGameWon(state.isWon)
+            setTimeUntilNextWord(getTimeUntilNextWord())
+            if (state.guesses.length === 0) {
+                setIsInfoModalOpen(true)
+            }
+            if (state.isWon) {
+                setIsWinAnimationStarted(true)
+                setIsWinModalOpen(true)
+            }
+        },
+        [],
+    )
+
+    // Live progress from everyone else in this activity instance.
+    useEffect(() => {
+        const token = getAccessToken()
+        if (!session?.instanceId || !token) {
+            return
         }
-        if (state.isWon) {
-            setIsWinAnimationStarted(true)
-            setIsWinModalOpen(true)
-        }
-    }, [])
+        const connection = new LiveConnection(session.instanceId, token, {
+            onParticipants: setParticipants,
+        })
+        connection.connect()
+        return () => connection.close()
+    }, [session])
 
     // Boot: authenticate with Discord, then load the board. Both must succeed before the
     // grid means anything, so failures surface instead of rendering an empty board.
@@ -105,7 +130,7 @@ function App() {
                 const active = await startSession()
                 if (cancelled) return
                 setSession(active)
-                await loadState(active.guildId, active.channelId)
+                await loadState(active.guildId, active.channelId, active.instanceId)
                 if (!cancelled) await refreshStats()
             } catch (error) {
                 if (!cancelled) {
@@ -128,7 +153,7 @@ function App() {
         const timer = setInterval(() => {
             setTimeUntilNextWord(getTimeUntilNextWord())
             if (hasRolledOver()) {
-                void loadState(session?.guildId ?? null, session?.channelId ?? null)
+                void loadState(session?.guildId ?? null, session?.channelId ?? null, session?.instanceId ?? null)
             }
         }, 1000)
         return () => clearInterval(timer)
@@ -183,7 +208,11 @@ function App() {
 
         setIsSubmitting(true)
         try {
-            const result = await submitGuess(currentGuess)
+            const result = await submitGuess(currentGuess, {
+                instanceId: session?.instanceId,
+                guildId: session?.guildId,
+                channelId: session?.channelId,
+            })
 
             if (!result.ok) {
                 playSound('invalid')
@@ -316,6 +345,7 @@ function App() {
                     win={isWinAnimationStarted}
                 />
                 <Keyboard onChar={onChar} onDelete={onDelete} onEnter={() => void onEnter()} guesses={guesses} />
+                <Participants players={participants} currentUserId={session.userId} />
                 <WinModal
                     isOpen={isWinModalOpen}
                     handleClose={() => setIsWinModalOpen(false)}

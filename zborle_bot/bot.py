@@ -17,6 +17,15 @@ from .words import GuessError
 
 log = logging.getLogger(__name__)
 
+# Set by the runner: the session manager needs the client, which is defined here.
+sessions = None
+
+
+def set_sessions(manager) -> None:
+    global sessions
+    sessions = manager
+
+
 # Discord's PRIMARY_ENTRY_POINT application command type, created automatically when
 # Activities are enabled. discord.py 2.7's AppCommandType does not include it.
 ENTRY_POINT_COMMAND_TYPE = 4
@@ -150,6 +159,12 @@ async def daily_summary_task() -> None:
         await post_due_summaries(client, client.db)
     except Exception:
         log.exception('Дневниот преглед не успеа')
+
+    if sessions is not None:
+        try:
+            await sessions.sweep()
+        except Exception:
+            log.exception('Чистењето на старите сесии не успеа')
 
 
 @daily_summary_task.before_loop

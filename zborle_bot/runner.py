@@ -12,8 +12,9 @@ import os
 import uvicorn
 from discord.utils import MISSING, setup_logging
 
-from .bot import client
-from .web import app
+from .bot import client, set_sessions
+from .sessions import SessionManager
+from .web import app, set_session_manager
 
 log = logging.getLogger(__name__)
 
@@ -37,6 +38,12 @@ async def _serve_web(port: int) -> None:
 
 
 async def _amain(token: str, port: int) -> None:
+    # The web server and the bot both need this, and it needs the client, so it is built
+    # here where both are in scope rather than at import time in either module.
+    manager = SessionManager(client, client.db)
+    set_session_manager(manager)
+    set_sessions(manager)
+
     # gather() so either task failing propagates instead of silently leaving half the
     # process running: a live web server with a dead bot looks healthy to Fly.
     await asyncio.gather(_serve_web(port), client.start(token))
